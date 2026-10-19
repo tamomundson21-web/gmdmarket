@@ -12,10 +12,16 @@
     "test": "node --test dist/**/*.test.js"
   },
   "dependencies": {
-    "fastify": "5.12.5"
+    "@fastify/type-provider-typebox": "^5.1.0",
+    "@sinclair/typebox": "^0.34.0",
+    "argon2": "0.45.1",
+    "fastify": "5.12.5",
+    "kysely": "^0.27.4",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

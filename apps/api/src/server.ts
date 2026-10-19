@@ -1,4 +1,11 @@
 import Fastify from 'fastify';
+import { Type } from '@sinclair/typebox';
+import {
+  ErrorResponseSchema,
+  HealthResponseSchema,
+  VersionResponseSchema,
+} from './schemas/common.js';
+import { closeDb, getDb } from './db/index.js';
 
 const PORT = Number(process.env.API_PORT ?? 3001);
 const HOST = process.env.API_HOST ?? '0.0.0.0';
@@ -9,16 +16,62 @@ const app = Fastify({
   },
 });
 
-app.get('/health', async () => ({
-  status: 'ok',
-  service: 'gmd-api',
-}));
+app.get(
+  '/health',
+  {
+    schema: {
+      response: { 200: HealthResponseSchema },
+    },
+  },
+  async () => ({ status: 'ok', service: 'gmd-api' }),
+);
 
-app.get('/api/version', async () => ({
-  name: 'GMD Market',
-  legalName: 'Global Menkul Değerler',
-  version: '0.1.0',
-}));
+app.get(
+  '/health/ready',
+  {
+    schema: {
+      response: {
+        200: Type.Object(
+          { status: Type.String(), database: Type.String() },
+          { additionalProperties: false },
+        ),
+        default: ErrorResponseSchema,
+      },
+    },
+  },
+  async (_req, reply) => {
+    try {
+      const result = await getDb()
+        .selectFrom('health_probe')
+        .select((eb) => eb.fn.countAll<number>().as('c'))
+        .executeTakeFirstOrThrow();
+      return { status: 'ok', database: `postgres ok (${result.c} satir)` };
+    } catch (err) {
+      app.log.error({ err }, 'database kontrolu basarisiz');
+      return reply.code(503).send({
+        error: 'service_unavailable',
+        message: 'veritabani erisilemiyor',
+      });
+    }
+  },
+);
+
+app.get(
+  '/api/version',
+  {
+    schema: {
+      response: {
+        200: VersionResponseSchema,
+        default: ErrorResponseSchema,
+      },
+    },
+  },
+  async () => ({
+    name: 'GMD Market',
+    legalName: 'Global Menkul Değerler',
+    version: '0.1.0',
+  }),
+);
 
 async function main(): Promise<void> {
   try {
@@ -31,7 +84,7 @@ async function main(): Promise<void> {
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
-    void app.close().then(() => process.exit(0));
+    void app.close().then(closeDb).then(() => process.exit(0));
   });
 }
 
