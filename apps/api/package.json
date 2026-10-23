@@ -12,6 +12,7 @@
     "test": "node --test dist/**/*.test.js"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.0.2",
     "@fastify/type-provider-typebox": "^5.1.0",
     "@sinclair/typebox": "^0.34.0",
     "argon2": "0.45.1",

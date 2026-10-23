@@ -1,4 +1,6 @@
 import Fastify from 'fastify';
+import cookie from '@fastify/cookie';
+import type { FastifyReply } from 'fastify';
 import { Type } from '@sinclair/typebox';
 import {
   ErrorResponseSchema,
@@ -15,17 +17,22 @@ import {
 import { closeDb, getDb } from './db/index.js';
 import { createEnvelope, isEnvelopeExpired, setFingerprintKey } from './auth/envelope.js';
 import { hashPassword } from './auth/password.js';
-import { randomUUID } from 'node:crypto';
+import { encryptTc, setTcKey } from './auth/tc.js';
+import { authRoutes } from './routes/auth.js';
+import { adminRoutes } from './routes/admin.js';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 const PORT = Number(process.env.API_PORT ?? 3001);
 const HOST = process.env.API_HOST ?? '0.0.0.0';
 
-const FINGERPRINT_KEY = process.env.F1_FINGERPRINT_KEY ?? 'dev-only-key-change-in-prod';
-setFingerprintKey(Buffer.from(FINGERPRINT_KEY, 'utf8'));
+setFingerprintKey(Buffer.from(process.env.F1_FINGERPRINT_KEY ?? 'dev-only-key-change-in-prod', 'utf8'));
+setTcKey(Buffer.from(process.env.F1_TC_KEY ?? 'dev-tc-key-32-bytes-change-me!!', 'utf8'));
 
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? 'info' },
 });
+
+await app.register(cookie, { secret: process.env.F1_COOKIE_SECRET ?? 'dev-cookie-secret-change-me' });
 
 app.get('/health', { schema: { response: { 200: HealthResponseSchema } } }, async () => ({
   status: 'ok',
@@ -54,7 +61,7 @@ app.get(
       return { status: 'ok', database: `postgres ok (${result.c} satir)` };
     } catch (err) {
       app.log.error({ err }, 'database kontrolu basarisiz');
-      return reply.code(503).send({
+      return (reply as FastifyReply).code(503).send({
         error: 'service_unavailable',
         message: 'veritabani erisilemiyor',
       });
@@ -168,6 +175,23 @@ app.post(
     const resultRef = randomUUID();
     const now = new Date();
 
+    const prior = await db
+      .selectFrom('f1_command_results')
+      .select(['outcome', 'result_ref'])
+      .where('installation_id', '=', envelope.installation_id)
+      .where('command_key', '=', command_key)
+      .executeTakeFirst();
+
+    if (prior) {
+      const priorStatus =
+        prior.outcome === 'rejected' ? 'rejected' : prior.outcome === 'applied' ? 'approved' : 'pending';
+      return reply.send({
+        result: prior.outcome,
+        result_ref: prior.result_ref ?? resultRef,
+        status: priorStatus,
+      });
+    }
+
     try {
       const outcome = await db.transaction().execute(async (trx): Promise<{
         outcome: 'applied' | 'no_op' | 'rejected';
@@ -265,6 +289,23 @@ app.post(
           }
         }
 
+        if (tc_kimlik && /^\d{11}$/.test(tc_kimlik)) {
+          const tc = encryptTc(tc_kimlik);
+          await trx
+            .insertInto('tc_identity_vault')
+            .values({
+              id: randomUUID(),
+              user_id: user.id,
+              tc_ciphertext: tc.ciphertext,
+              tc_nonce: tc.nonce,
+              tc_auth_tag: tc.tag,
+              tc_key_id: tc.keyId,
+              tc_crypto_version: tc.cryptoVersion,
+              created_at: now,
+            })
+            .execute();
+        }
+
         await trx
           .insertInto('registration_queue')
           .values({
@@ -316,6 +357,9 @@ app.post(
     }
   },
 );
+
+await app.register(authRoutes, { prefix: '' });
+await app.register(adminRoutes, { prefix: '' });
 
 async function main(): Promise<void> {
   try {

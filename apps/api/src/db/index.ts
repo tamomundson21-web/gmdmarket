@@ -136,6 +136,17 @@ export interface HealthProbe {
   checked_at: Date;
 }
 
+export interface TcIdentityVault {
+  id: string;
+  user_id: string;
+  tc_ciphertext: Buffer;
+  tc_nonce: Buffer;
+  tc_auth_tag: Buffer;
+  tc_key_id: string;
+  tc_crypto_version: string;
+  created_at: Date;
+}
+
 export interface Database {
   users: Users;
   desks: Desks;
@@ -147,6 +158,7 @@ export interface Database {
   password_reset_tokens: PasswordResetTokens;
   f1_command_results: F1CommandResults;
   desk_invites: DeskInvites;
+  tc_identity_vault: TcIdentityVault;
   health_probe: HealthProbe;
 }
 
