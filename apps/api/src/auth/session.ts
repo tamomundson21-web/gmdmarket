@@ -80,30 +80,7 @@ export async function login(
       created: meta.created,
     }));
 
-    let targetFamily: string;
-
-    if (liveFamilies.length === 0) {
-      const family = await trx
-        .insertInto('auth_session_families')
-        .values({
-          id: crypto.randomUUID(),
-          user_id: user.id,
-          created_at: now,
-          last_user_activity_at: now,
-          version: 1,
-        })
-        .returning('id')
-        .executeTakeFirstOrThrow();
-      targetFamily = family.id;
-    } else if (liveFamilies.length < MAX_FAMILIES) {
-      const reuse = [...liveFamilies].sort((a, b) => {
-        const at = a.last?.getTime() ?? 0;
-        const bt = b.last?.getTime() ?? 0;
-        if (at !== bt) return at - bt;
-        return a.created.getTime() - b.created.getTime();
-      })[0]!;
-      targetFamily = reuse.id;
-    } else {
+    if (liveFamilies.length >= MAX_FAMILIES) {
       const lru = [...liveFamilies].sort((a, b) => {
         const at = a.last?.getTime() ?? 0;
         const bt = b.last?.getTime() ?? 0;
@@ -111,20 +88,20 @@ export async function login(
         return a.created.getTime() - b.created.getTime();
       })[0]!;
       await revokeFamily(trx, lru.id, now);
-
-      const family = await trx
-        .insertInto('auth_session_families')
-        .values({
-          id: crypto.randomUUID(),
-          user_id: user.id,
-          created_at: now,
-          last_user_activity_at: now,
-          version: 1,
-        })
-        .returning('id')
-        .executeTakeFirstOrThrow();
-      targetFamily = family.id;
     }
+
+    const familyRow = await trx
+      .insertInto('auth_session_families')
+      .values({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        created_at: now,
+        last_user_activity_at: now,
+        version: 1,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const targetFamily = familyRow.id;
 
     const session = generateToken('active');
     const idleMs = idleFor(locked.role);
